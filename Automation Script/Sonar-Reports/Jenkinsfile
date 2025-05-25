@@ -1,0 +1,71 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(name: 'SONAR_HOST', defaultValue: 'https:// url', description: 'SonarQube server URL')
+        choice(name: 'SONAR_PROJECT', choices: ['name of project', 'name of project', 'name of project'], description: 'SonarQube project key')
+        string(name: 'REPORT_NAME', defaultValue: 'sonarqube_report.html', description: 'Output HTML report name')
+        string(name: 'CHARTS_DIR', defaultValue: 'charts', description: 'Directory to save charts')
+        password(name: 'SONAR_TOKEN', defaultValue: '', description: 'SonarQube API Token')
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: 'refs/heads/<branch name>']],
+                    userRemoteConfigs: [[
+                        url: 'https:// repo url',
+                        credentialsId: 'value'
+                    ]]
+                ])
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                sh '''
+                set -e
+                which python3 || (apt-get update && apt-get install -y python3 python3-pip)
+                pip3 install --upgrade pip
+                pip3 install requests pandas matplotlib
+                '''
+            }
+        }
+
+        stage('Run SonarQube Report') {
+            steps {
+                withCredentials([string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_API_TOKEN')]) {
+                    echo "▶️ Generating report for Sonar project key: ${params.SONAR_PROJECT}"
+                    sh """
+                    set -e
+                    export SONAR_API_TOKEN="${SONAR_API_TOKEN}"
+                    python3 sonar.py \\
+                        --host "${params.SONAR_HOST}" \\
+                        --project "${params.SONAR_PROJECT}" \\
+                        --token "${SONAR_API_TOKEN}" \\
+                        --output "${params.REPORT_NAME}" \\
+                        --charts-dir "${params.CHARTS_DIR}"
+                    """
+                }
+            }
+        }
+
+        stage('Archive Report') {
+            steps {
+                echo "📦 Archiving report and charts"
+                archiveArtifacts artifacts: "${params.REPORT_NAME}, ${params.CHARTS_DIR}/*", fingerprint: true
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ SonarQube report generated and archived successfully."
+        }
+        failure {
+            echo "❌ Pipeline failed. Please check logs."
+        }
+    }
+}
